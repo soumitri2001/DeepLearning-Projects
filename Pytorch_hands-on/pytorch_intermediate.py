@@ -169,3 +169,190 @@ first_data = dataset[0]
 features,labels = first_data
 print(type(features),type(labels))
 
+# crossentropy loss
+
+def cross_entropy(actual,predicted):
+    loss = -np.sum(actual*np.log(predicted))
+    return loss
+
+# actual labels must be one-hot encoded
+Y_actual = np.array([1,0,0])
+
+Y_pred_good = np.array([0.7,0.2,0.1])
+Y_pred_bad = np.array([0.3,0.3,0.4])
+
+print(cross_entropy(Y_actual,Y_pred_good))
+print(cross_entropy(Y_actual,Y_pred_bad))
+
+'''
+nn.CrossEntropyLoss()
+--------------------------
+- no softmax in last layer needed as it itself applies softmax
+- Y_actual has class labels and NOT one-hot encodings
+- Y_pred has raw scores and NOT softmax outputs
+
+'''
+
+loss = nn.CrossEntropyLoss()
+
+Y_actual = torch.tensor([2,0,1])
+
+# shape = n_samples * n_classes = 3x3
+Y_pred_good = torch.tensor([[2.0, 1.0, 3.1],
+                            [2.3, 0.1, 0.9],
+                            [1.2, 4.6, 1.2]])
+Y_pred_bad = torch.tensor([[0.5, 2.0, 0.3],
+                           [0.1, 2.3, 4.3],
+                           [3.4, 0.9, 3.2]])
+
+l1 = loss(Y_pred_good,Y_actual)
+l2 = loss(Y_pred_bad,Y_actual)
+
+print('L1 = '+str(l1.item()))
+print('L2 = '+str(l2.item()))
+
+_,predictions1 = torch.max(Y_pred_good,1)
+_,predictions2 = torch.max(Y_pred_bad,1)
+
+print(predictions1)
+print(predictions2)
+
+'''
+Binary classification - use sigmoid output and use nn.BCELoss()
+
+Multiclass classification - use nn.CrossEntropyLoss() [it already constitues softmax]
+
+'''
+
+# Multiclass classification - Model class
+
+class Net(nn.Module):
+    def __init__(self,input_size,hidden_size):
+        super(NeuralNet,self).__init__()
+        self.linear1 = nn.Linear(input_size,hidden_size)
+        self.relu = nn.ReLU()
+        self.linear2 = nn.Linear(hidden_size,1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self,x):
+        x1 = self.linear1(x)
+        x1 = self.relu(x1)
+        x2 = self.linear2(x1)
+        x2 = self.sigmoid(x2)
+        return x1,x2
+
+"""### CNN practical - MNIST (obvious choice for noobs :P )"""
+
+import os
+import math
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+import torch
+import torch.nn as nn
+import torchvision
+import torchvision.transforms as transforms
+from torch.utils.data import Dataset,DataLoader
+
+# device config
+device = None
+if torch.cuda.is_available():
+    device = torch.device('cuda')
+else:
+    device = torch.device('cpu')
+
+device
+
+# hyperparameters
+input_size = 784 # 28x28
+hidden_size = 100
+num_classes = 10
+num_epochs = 50
+batch_size = 100
+learning_rate = 0.01
+
+# MNIST
+train_dataset = torchvision.datasets.MNIST(root='./data',train=True,
+                                           transform=transforms.ToTensor(),
+                                           download=True)
+
+test_dataset = torchvision.datasets.MNIST(root='./data',train=False,
+                                          transform=transforms.ToTensor())
+
+# DataLoader
+train_loader = DataLoader(dataset=train_dataset,
+                          batch_size=batch_size,
+                          shuffle=True)
+
+test_loader = DataLoader(dataset=test_dataset,
+                         batch_size=batch_size,
+                         shuffle=False)
+
+examples = iter(train_loader)
+samples,labels = examples.next()
+print(samples.shape,labels.shape) 
+# 100 is for batch_size, 1 is for color channel, 28x28 is dimension of image
+
+# model class
+class NeuralNet(nn.Module):
+    def __init__(self,input_size,hidden_size,num_classes):
+        super(NeuralNet,self).__init__()
+        self.linear1 = nn.Linear(input_size,hidden_size)
+        self.relu = nn.ReLU()
+        self.linear2 =  nn.Linear(hidden_size,num_classes)
+
+    def forward(self,x):
+        x1 = self.linear1(x)
+        x1 = self.relu(x1)
+        x2 = self.linear2(x1)
+        return x2 # no softmax as nn.CrossEntropyLoss() will put it
+
+# defining model
+model = NeuralNet(input_size,hidden_size,num_classes)
+model=model.to(device)
+
+# loss and optimizer
+criterion = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(),lr=learning_rate)
+
+# training loop
+n_total_steps = len(train_loader) # total nos of training samples
+for epoch in range(num_epochs):
+    for ii,(images,labels) in enumerate(train_loader):
+        # reshape images - need to convert (100,1,28,28) to (100,28*28)
+        images = images.reshape(-1,28*28).to(device)
+        labels = labels.to(device) # pushing tensor to gpu if present
+
+        # forward 
+        outputs = model(images)
+        loss = criterion(outputs,labels)
+
+        # backward
+        loss.backward()
+
+        # update
+        optimizer.step()
+        optimizer.zero_grad()
+
+        if (ii+1)%100 == 0:
+            print(f'epoch {epoch+1}/{num_epochs}, step {ii+1}/{n_total_steps},loss = {loss.item()}')
+
+# testing loop
+with torch.no_grad():
+    n_correct = 0
+    n_samples = 0
+    for images,labels in test_loader:
+        images = images.reshape(-1,28*28).to(device)
+        labels = labels.to(device)
+        
+        outputs = model(images)
+
+        # value,index
+        _, preds = torch.max(outputs,1)
+        n_samples += labels.shape[0]
+        n_correct += (preds == labels).sum().item()
+
+    accuracy = n_correct/float(n_samples)
+    print(f'Accuracy on test data = {accuracy:.4f}')
+
